@@ -120,10 +120,12 @@ def salvar_ocorrencias(df):
 if "df_ocorrencias" not in st.session_state:
   st.session_state.df_ocorrencias = carregar_ocorrencias()
 
-# Abas principais
-aba_supervisor, aba_gestor = st.tabs(
-    ["📝 Registrar Ocorrência (Supervisor)", "🕵️‍♂️ Caixa de Análise (Gestor)"]
-)
+# Abas principais (Adicionada a aba de Pesquisa/Consulta)
+aba_supervisor, aba_consulta, aba_gestor = st.tabs([
+    "📝 Registrar Ocorrência",
+    "🔍 Consultar Meu Pedido",
+    "🕵️‍♂️ Caixa de Análise (Gestor)",
+])
 
 # ==========================================
 # ABA 1: REGISTRO PELO SUPERVISOR
@@ -224,7 +226,77 @@ with aba_supervisor:
         )
 
 # ==========================================
-# ABA 2: SUA CAIXA DE ANÁLISE (GESTOR)
+# ABA 2: CONSULTA DE PEDIDOS (PARA OS SUPERVISORES)
+# ==========================================
+with aba_consulta:
+  st.subheader("🔍 Consultar Status do Pedido")
+  st.markdown(
+      "Digite o **Número do Pedido** ou o **Nome do Supervisor** para verificar"
+      " o andamento e a solução."
+  )
+
+  termo_busca = st.text_input(
+      "Pesquisar por Pedido ou Supervisor:",
+      placeholder="Ex: 123456 ou Carlos...",
+  )
+
+  df_oc = st.session_state.df_ocorrencias
+
+  if termo_busca.strip():
+    # Filtra considerando tanto o número do pedido quanto o nome do supervisor (ignorando maiúsculas/minúsculas)
+    filtro_resultado = df_oc[
+        df_oc["Numero_Pedido"]
+        .str.contains(termo_busca.strip(), case=False, na=False)
+        | df_oc["Nome_Supervisor"]
+        .str.contains(termo_busca.strip(), case=False, na=False)
+    ]
+
+    if not filtro_resultado.empty:
+      st.markdown(
+          f"Encontrado(s) **{len(filtro_resultado)}** registro(s) para sua"
+          f" busca:"
+      )
+      st.markdown("---")
+
+      for _, row in filtro_resultado.iterrows():
+        with st.container(border=True):
+          st.markdown(
+              f"**ID:** `{row['ID_Ocorrencia']}` | **Enviado em:**"
+              f" `{row['Data_Envio']}`"
+          )
+          st.markdown(
+              f"👤 **Supervisor:** `{row['Nome_Supervisor']}` | 📦 **Pedido:**"
+              f" `{row['Numero_Pedido']}`"
+          )
+          st.markdown(
+              f"👩‍💼 **Revendedora:** {row['Nome_Revendedora']} (Cód:"
+              f" `{row['Codigo_Revendedor']}`)"
+          )
+          st.markdown(f"💬 **Seu Relato:** *{row['Relato_Problema']}*")
+
+          # Exibe o status com destaque
+          status_atual = row["Status"]
+          st.markdown(f"📌 **Status Atual:** **{status_atual}**")
+
+          # Exibe a solução se houver
+          solucao_resp = row["Solucao"] if pd.notna(row["Solucao"]) else ""
+          if solucao_resp:
+            st.success(f"🛠️ **Solução Registrada pela Gestão:** {solucao_resp}")
+          else:
+            st.info(
+                "⏳ Este pedido aguarda análise ou verificação da equipe"
+                " gestora."
+            )
+    else:
+      st.warning(
+          "⚠️ Nenhum pedido encontrado com esse termo. Verifique o número digitado"
+          " e tente novamente."
+      )
+  else:
+    st.info("ℹ️ Digite algo no campo acima para iniciar a pesquisa.")
+
+# ==========================================
+# ABA 3: SUA CAIXA DE ANÁLISE (GESTOR) - MANTIDA IGUAL
 # ==========================================
 with aba_gestor:
   st.subheader("🕵️‍♂️ Painel Gerencial de Ocorrências")
