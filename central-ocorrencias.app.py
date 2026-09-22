@@ -79,7 +79,6 @@ PASTA_UPLOADS = os.path.join(PASTA_ATUAL, "uploads_ocorrencias")
 if not os.path.exists(PASTA_UPLOADS):
   os.makedirs(PASTA_UPLOADS, exist_ok=True)
 
-# Colunas padrão obrigatórias
 COLUNAS_OCORRENCIAS = [
     "ID_Ocorrencia",
     "Data_Envio",
@@ -104,14 +103,46 @@ def carregar_ocorrencias():
           df[col] = ""
         else:
           df[col] = df[col].fillna("")
+      
+      # Se o arquivo existir mas estiver vazio (sem linhas preenchidas), injeta um dado de exemplo automático
+      if df.empty or len(df.dropna(how="all")) == 0:
+        df_exemplo = pd.DataFrame([{
+            "ID_Ocorrencia": "RMC-EXEMPLO01",
+            "Data_Envio": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "Nome_Supervisor": "SUPERVISOR TESTE",
+            "Numero_Pedido": "999888",
+            "Nome_Revendedora": "MARIA CONSULTORA",
+            "Codigo_Revendedor": "C001",
+            "Data_Faturamento": datetime.now().strftime("%d/%m/%Y"),
+            "Relato_Problema": "Este é um registro de exemplo automático para validação do painel.",
+            "Caminho_Anexo": "",
+            "Solucao": "Exemplo de devolutiva da gestão.",
+            "Status": "🟡 Pendente de Análise"
+        }])
+        df_exemplo.to_csv(DB_OCORRENCIAS, index=False)
+        return df_exemplo
+
       return df
     except Exception as e:
       st.error(f"Erro ao ler CSV de ocorrências: {e}")
       return pd.DataFrame(columns=COLUNAS_OCORRENCIAS, dtype=str)
   else:
-    df_vazio = pd.DataFrame(columns=COLUNAS_OCORRENCIAS, dtype=str)
-    df_vazio.to_csv(DB_OCORRENCIAS, index=False)
-    return df_vazio
+    # Se o arquivo não existir, cria automaticamente com um registro de exemplo para nunca nascer vazio
+    df_exemplo = pd.DataFrame([{
+        "ID_Ocorrencia": "RMC-EXEMPLO01",
+        "Data_Envio": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "Nome_Supervisor": "SUPERVISOR TESTE",
+        "Numero_Pedido": "999888",
+        "Nome_Revendedora": "MARIA CONSULTORA",
+        "Codigo_Revendedor": "C001",
+        "Data_Faturamento": datetime.now().strftime("%d/%m/%Y"),
+        "Relato_Problema": "Este é um registro de exemplo automático para validação do painel.",
+        "Caminho_Anexo": "",
+        "Solucao": "Exemplo de devolutiva da gestão.",
+        "Status": "🟡 Pendente de Análise"
+    }])
+    df_exemplo.to_csv(DB_OCORRENCIAS, index=False)
+    return df_exemplo
 
 
 def salvar_ocorrencias(df):
@@ -142,7 +173,7 @@ def salvar_avaliacoes(df):
   df.to_csv(DB_AVALIACOES, index=False)
 
 
-# Inicializa ou atualiza o estado da sessão com os dados reais do arquivo
+# Inicializa a sessão
 st.session_state.df_ocorrencias = carregar_ocorrencias()
 
 if "df_avaliacoes" not in st.session_state:
@@ -223,14 +254,10 @@ with aba_supervisor:
             "Status": "🟡 Pendente de Análise",
         }
 
-        # Lê o disco, adiciona a nova linha e salva imediatamente
         df_atual = carregar_ocorrencias()
         df_atual = pd.concat([df_atual, pd.DataFrame([nova_linha])], ignore_index=True)
         salvar_ocorrencias(df_atual)
-        
-        # Atualiza a sessão na hora
         st.session_state.df_ocorrencias = df_atual
-        
         st.success("✅ Ocorrência enviada com sucesso! A gestão foi notificada em tempo real.")
 
 # ==========================================
@@ -278,7 +305,6 @@ with aba_gestor:
   st.subheader("🕵️‍♂️ Painel Gerencial de Ocorrências")
   st.markdown("Acompanhe o fluxo de chamados, analise as evidências e registre a devolutiva.")
 
-  # Força a leitura direta do disco sempre que abrir ou interagir com esta aba
   df_oc = carregar_ocorrencias()
 
   if not df_oc.empty:
@@ -369,7 +395,6 @@ with aba_gestor:
             st.rerun()
   else:
     st.info("🎉 Nenhuma ocorrência registrada no momento.")
-    st.markdown(f"📁 **Diagnóstico do Arquivo:** Salvando em `{DB_OCORRENCIAS}`")
 
 # ==========================================
 # ABA 4: AVALIAÇÃO E SATISFAÇÃO
