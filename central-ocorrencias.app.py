@@ -104,7 +104,6 @@ def carregar_ocorrencias():
         else:
           df[col] = df[col].fillna("")
       
-      # Se o arquivo existir mas estiver vazio (sem linhas preenchidas), injeta um dado de exemplo automático
       if df.empty or len(df.dropna(how="all")) == 0:
         df_exemplo = pd.DataFrame([{
             "ID_Ocorrencia": "RMC-EXEMPLO01",
@@ -127,7 +126,6 @@ def carregar_ocorrencias():
       st.error(f"Erro ao ler CSV de ocorrências: {e}")
       return pd.DataFrame(columns=COLUNAS_OCORRENCIAS, dtype=str)
   else:
-    # Se o arquivo não existir, cria automaticamente com um registro de exemplo para nunca nascer vazio
     df_exemplo = pd.DataFrame([{
         "ID_Ocorrencia": "RMC-EXEMPLO01",
         "Data_Envio": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -267,7 +265,7 @@ with aba_consulta:
   st.subheader("🔍 Consultar Status do Pedido")
   st.markdown("Digite o **Número do Pedido** ou o **Nome do Supervisor** para verificar o andamento.")
 
-  termo_busca = st.text_input("Pesquisar por Pedido ou Supervisor:", placeholder="Ex: 123456 ou Carlos...")
+  termo_busca = st.text_input("Pesquisar por Pedido ou Supervisor:", placeholder="Ex: 123456 ou Carlos...", key="busca_consulta_ped")
   df_oc = carregar_ocorrencias()
 
   if termo_busca.strip():
@@ -311,6 +309,7 @@ with aba_gestor:
     filtro_st = st.selectbox(
         "🔍 Filtrar por Status do Processo:",
         ["Todos", "🟡 Pendente de Análise", "🔍 Em Verificação", "✅ Problema Finalizado"],
+        key="filtro_status_gestor"
     )
 
     if filtro_st != "Todos":
@@ -322,6 +321,9 @@ with aba_gestor:
     st.markdown("---")
 
     for index, row in df_exibir.iterrows():
+      # Adicionamos o índice (index) na chave para garantir total unicidade e evitar o erro
+      id_unico = f"{row['ID_Ocorrencia']}_{index}"
+
       with st.container(border=True):
         col_c1, col_c2 = st.columns([2.3, 1.7])
 
@@ -353,12 +355,12 @@ with aba_gestor:
           nova_solucao = st.text_area(
               "Digite ou cole a Devolutiva:",
               value=solucao_atual,
-              key=f"sol_text_{row['ID_Ocorrencia']}",
+              key=f"sol_text_{id_unico}",
               placeholder="Escreva a resposta para o supervisor...",
               height=90,
           )
 
-          if st.button("💾 Salvar Devolutiva", key=f"save_sol_{row['ID_Ocorrencia']}"):
+          if st.button("💾 Salvar Devolutiva", key=f"save_sol_{id_unico}"):
             df_atualizado = carregar_ocorrencias()
             idx_match = df_atualizado[df_atualizado["ID_Ocorrencia"] == row["ID_Ocorrencia"]].index
             if not idx_match.empty:
@@ -370,7 +372,7 @@ with aba_gestor:
           st.markdown("---")
           col_b1, col_b2 = st.columns(2)
           with col_b1:
-            if st.button("🔍 Em Verif.", key=f"verif_{row['ID_Ocorrencia']}"):
+            if st.button("🔍 Em Verif.", key=f"verif_{id_unico}"):
               df_atualizado = carregar_ocorrencias()
               idx_match = df_atualizado[df_atualizado["ID_Ocorrencia"] == row["ID_Ocorrencia"]].index
               if not idx_match.empty:
@@ -379,7 +381,7 @@ with aba_gestor:
                 st.rerun()
 
           with col_b2:
-            if st.button("✅ Finalizar", key=f"fin_{row['ID_Ocorrencia']}"):
+            if st.button("✅ Finalizar", key=f"fin_{id_unico}"):
               df_atualizado = carregar_ocorrencias()
               idx_match = df_atualizado[df_atualizado["ID_Ocorrencia"] == row["ID_Ocorrencia"]].index
               if not idx_match.empty:
@@ -387,7 +389,7 @@ with aba_gestor:
                 salvar_ocorrencias(df_atualizado)
                 st.rerun()
 
-          if st.button("🗑️ Excluir", key=f"del_{row['ID_Ocorrencia']}", use_container_width=True):
+          if st.button("🗑️ Excluir", key=f"del_{id_unico}", use_container_width=True):
             df_atualizado = carregar_ocorrencias()
             df_atualizado = df_atualizado[df_atualizado["ID_Ocorrencia"] != row["ID_Ocorrencia"]].reset_index(drop=True)
             salvar_ocorrencias(df_atualizado)
@@ -411,9 +413,9 @@ with aba_avaliacao:
         "⭐⭐⭐⭐ (4 - Bom)": "4",
         "⭐⭐⭐⭐⭐ (5 - Excelente)": "5",
     }
-    escolha_estrela = st.selectbox("Como você avalia o sistema?", options=list(mapa_estrelas.keys()))
-    nome_avaliador = st.text_input("Seu Nome:", placeholder="Ex: Maria Oliveira")
-    sugestao_melhoria = st.text_area("Sugestões de melhorias ou comentários:", height=120)
+    escolha_estrela = st.selectbox("Como você avalia o sistema?", options=list(mapa_estrelas.keys()), key="select_estrelas_av")
+    nome_avaliador = st.text_input("Seu Nome:", placeholder="Ex: Maria Oliveira", key="input_nome_av")
+    sugestao_melhoria = st.text_area("Sugestões de melhorias ou comentários:", height=120, key="txt_sugestao_av")
 
     btn_enviar_avaliacao = st.form_submit_button("📥 Enviar Avaliação", use_container_width=True)
 
@@ -449,11 +451,12 @@ with aba_admin:
         data=csv_dados,
         file_name="backup_dados_ocorrencias.csv",
         mime="text/csv",
+        key="btn_download_csv_admin"
     )
 
   st.markdown("---")
   st.markdown("##### 📤 Importar / Restaurar Banco de Dados")
-  arquivo_importado = st.file_uploader("Envie um arquivo `dados_ocorrencias.csv` para unificar os registros:", type=["csv"])
+  arquivo_importado = st.file_uploader("Envie um arquivo `dados_ocorrencias.csv` para unificar os registros:", type=["csv"], key="uploader_csv_admin")
   
   if arquivo_importado is not None:
     try:
