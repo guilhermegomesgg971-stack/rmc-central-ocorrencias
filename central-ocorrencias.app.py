@@ -82,7 +82,7 @@ if not os.path.exists(PASTA_UPLOADS):
   os.makedirs(PASTA_UPLOADS)
 
 
-# Função para carregar os dados de ocorrências com segurança
+# Função para carregar os dados de ocorrências com segurança e leitura em tempo real do disco
 def carregar_ocorrencias():
   colunas = [
       "ID_Ocorrencia",
@@ -138,14 +138,11 @@ def salvar_avaliacoes(df):
   df.to_csv(DB_AVALIACOES, index=False)
 
 
-# Inicializa o estado da sessão
-if "df_ocorrencias" not in st.session_state:
-  st.session_state.df_ocorrencias = carregar_ocorrencias()
+# Sempre recarrega os dados do arquivo para garantir sincronia em tempo real
+st.session_state.df_ocorrencias = carregar_ocorrencias()
+st.session_state.df_avaliacoes = carregar_avaliacoes()
 
-if "df_avaliacoes" not in st.session_state:
-  st.session_state.df_avaliacoes = carregar_avaliacoes()
-
-# Abas principais (Adicionada a aba de Avaliação e Satisfação)
+# Abas principais
 aba_supervisor, aba_consulta, aba_gestor, aba_avaliacao = st.tabs([
     "📝 Registrar Ocorrência",
     "🔍 Consultar Meu Pedido",
@@ -211,10 +208,13 @@ with aba_supervisor:
       ):
         st.error(
             "⚠️ Preencha os campos obrigatórios: **Nome do Supervisor**, **Número"
-            " do Pedido** e o **Relato do Problema**!"
+            " do Pedido** e o **Relato_Problema**!"
         )
       else:
-        novo_id = f"RMC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # Garante que pegamos os dados mais recentes antes de concatenar
+        df_atual = carregar_ocorrencias()
+
+        novo_id = f"RMC-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
 
         caminho_arquivo_salvo = ""
         if arquivo_enviado is not None:
@@ -238,21 +238,19 @@ with aba_supervisor:
             "Status": "🟡 Pendente de Análise",
         }
 
-        st.session_state.df_ocorrencias = pd.concat(
-            [
-                st.session_state.df_ocorrencias,
-                pd.DataFrame([nova_linha]),
-            ],
-            ignore_index=True,
+        df_atual = pd.concat(
+            [df_atual, pd.DataFrame([nova_linha])], ignore_index=True
         )
-        salvar_ocorrencias(st.session_state.df_ocorrencias)
+        salvar_ocorrencias(df_atual)
+        st.session_state.df_ocorrencias = df_atual
+
         st.success(
             "✅ Ocorrência enviada com sucesso! A gestão foi notificada em"
             " tempo real."
         )
 
 # ==========================================
-# ABA 2: CONSULTA DE PEDIDOS (PARA OS SUPERVISORES)
+# ABA 2: CONSULTA DE PEDIDOS
 # ==========================================
 with aba_consulta:
   st.subheader("🔍 Consultar Status do Pedido")
@@ -266,7 +264,7 @@ with aba_consulta:
       placeholder="Ex: 123456 ou Carlos...",
   )
 
-  df_oc = st.session_state.df_ocorrencias
+  df_oc = carregar_ocorrencias()
 
   if termo_busca.strip():
     filtro_resultado = df_oc[
@@ -279,7 +277,7 @@ with aba_consulta:
     if not filtro_resultado.empty:
       st.markdown(
           f"Encontrado(s) **{len(filtro_resultado)}** registro(s) para sua"
-          f" busca:"
+          " busca:"
       )
       st.markdown("---")
 
@@ -328,7 +326,8 @@ with aba_gestor:
       " devolutiva."
   )
 
-  df_oc = st.session_state.df_ocorrencias
+  # Força a carga atualizada do banco de dados em disco
+  df_oc = carregar_ocorrencias()
 
   if not df_oc.empty:
     filtro_st = st.selectbox(
@@ -395,64 +394,59 @@ with aba_gestor:
         with col_c2:
           st.markdown("##### ⚙️ Ações e Devolutiva")
 
-          idx_real = st.session_state.df_ocorrencias[
-              st.session_state.df_ocorrencias["ID_Ocorrencia"]
-              == row["ID_Ocorrencia"]
-          ].index[0]
+          # Carrega o dataframe atualizado para garantir o índice correto
+          df_live = carregar_ocorrencias()
+          matching_rows = df_live[
+              df_live["ID_Ocorrencia"] == row["ID_Ocorrencia"]
+          ]
 
-          nova_solucao = st.text_area(
-              "Digite ou cole a Devolutiva:",
-              value=solucao_atual,
-              key=f"sol_text_{row['ID_Ocorrencia']}",
-              placeholder="Escreva a resposta para o supervisor...",
-              height=90,
-          )
+          if not matching_rows.empty:
+            idx_real = matching_rows.index[0]
 
-          if st.button(
-              "💾 Salvar Devolutiva", key=f"save_sol_{row['ID_Ocorrencia']}"
-          ):
-            st.session_state.df_ocorrencias.at[idx_real, "Solucao"] = (
-                nova_solucao.strip()
+            nova_solucao = st.text_area(
+                "Digite ou cole a Devolutiva:",
+                value=solucao_atual,
+                key=f"sol_text_{row['ID_Ocorrencia']}",
+                placeholder="Escreva a resposta para o supervisor...",
+                height=90,
             )
-            salvar_ocorrencias(st.session_state.df_ocorrencias)
-            st.toast("Devolutiva salva com sucesso!", icon="💾")
-            st.rerun()
 
-          st.markdown("---")
-
-          col_b1, col_b2 = st.columns(2)
-          with col_b1:
             if st.button(
-                "🔍 Em Verif.", key=f"verif_{row['ID_Ocorrencia']}"
+                "💾 Salvar Devolutiva", key=f"save_sol_{row['ID_Ocorrencia']}"
             ):
-              st.session_state.df_ocorrencias.at[idx_real, "Status"] = (
-                  "🔍 Em Verificação"
-              )
-              salvar_ocorrencias(st.session_state.df_ocorrencias)
+              df_live.at[idx_real, "Solucao"] = nova_solucao.strip()
+              salvar_ocorrencias(df_live)
+              st.toast("Devolutiva salva com sucesso!", icon="💾")
               st.rerun()
 
-          with col_b2:
-            if st.button(
-                "✅ Finalizar", key=f"fin_{row['ID_Ocorrencia']}"
-            ):
-              st.session_state.df_ocorrencias.at[idx_real, "Status"] = (
-                  "✅ Problema Finalizado"
-              )
-              salvar_ocorrencias(st.session_state.df_ocorrencias)
-              st.rerun()
+            st.markdown("---")
 
-          if st.button(
-              "🗑️ Excluir",
-              key=f"del_{row['ID_Ocorrencia']}",
-              use_container_width=True,
-          ):
-            st.session_state.df_ocorrencias = st.session_state.df_ocorrencias[
-                st.session_state.df_ocorrencias["ID_Ocorrencia"]
-                != row["ID_Ocorrencia"]
-            ].reset_index(drop=True)
-            salvar_ocorrencias(st.session_state.df_ocorrencias)
-            st.warning("Registro excluído!")
-            st.rerun()
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+              if st.button(
+                  "🔍 Em Verif.", key=f"verif_{row['ID_Ocorrencia']}"
+              ):
+                df_live.at[idx_real, "Status"] = "🔍 Em Verificação"
+                salvar_ocorrencias(df_live)
+                st.rerun()
+
+            with col_b2:
+              if st.button("✅ Finalizar", key=f"fin_{row['ID_Ocorrencia']}"):
+                df_live.at[idx_real, "Status"] = "✅ Problema Finalizado"
+                salvar_ocorrencias(df_live)
+                st.rerun()
+
+            if st.button(
+                "🗑️ Excluir",
+                key=f"del_{row['ID_Ocorrencia']}",
+                use_container_width=True,
+            ):
+              df_live = df_live[
+                  df_live["ID_Ocorrencia"] != row["ID_Ocorrencia"]
+              ].reset_index(drop=True)
+              salvar_ocorrencias(df_live)
+              st.warning("Registro excluído!")
+              st.rerun()
   else:
     st.info("🎉 Nenhuma ocorrência registrada no momento.")
 
@@ -467,7 +461,6 @@ with aba_avaliacao:
   )
 
   with st.form("form_avaliacao", clear_on_submit=True):
-    # Sistema de estrelas formatado em texto/opções claras
     mapa_estrelas = {
         "⭐ (1 - Muito Ruim)": "1",
         "⭐⭐ (2 - Ruim)": "2",
@@ -500,6 +493,7 @@ with aba_avaliacao:
       if not nome_avaliador.strip():
         st.error("⚠️ Por favor, preencha o campo **Seu Nome**!")
       else:
+        df_av_atual = carregar_avaliacoes()
         nova_avaliacao = {
             "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "Nome": str(nome_avaliador).strip().upper(),
@@ -507,28 +501,21 @@ with aba_avaliacao:
             "Sugestao": str(sugestao_melhoria).strip(),
         }
 
-        st.session_state.df_avaliacoes = pd.concat(
-            [
-                st.session_state.df_avaliacoes,
-                pd.DataFrame([nova_avaliacao]),
-            ],
-            ignore_index=True,
+        df_av_atual = pd.concat(
+            [df_av_atual, pd.DataFrame([nova_avaliacao])], ignore_index=True
         )
-        salvar_avaliacoes(st.session_state.df_avaliacoes)
+        salvar_avaliacoes(df_av_atual)
+        st.session_state.df_avaliacoes = df_av_atual
         st.success("🎉 Muito obrigado! Sua avaliação foi enviada com sucesso.")
 
-  # Seção para a gestão ver o resumo das avaliações (opcional dentro da mesma aba)
   st.markdown("---")
   with st.expander("📊 Ver Feedback Recebido (Painel da Gestão)"):
-    df_av = st.session_state.df_avaliacoes
+    df_av = carregar_avaliacoes()
     if not df_av.empty:
-      st.markdown(
-          f"Total de avaliações recebidas: **{len(df_av)}**"
-      )
+      st.markdown(f"Total de avaliações recebidas: **{len(df_av)}**")
       for _, row_av in df_av.iterrows():
         st.markdown(
-            f"**{row_av['Name' if 'Name' in row_av else 'Nome']}** ("
-            f"{row_av['Data']}) - Nota:"
+            f"**{row_av['Nome']}** ({row_av['Data']}) - Nota:"
             f" `{'⭐' * int(row_av['Estrelas'])}`"
         )
         if row_av["Sugestao"]:
