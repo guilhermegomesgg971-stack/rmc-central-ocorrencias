@@ -17,7 +17,6 @@ st.markdown(
         .main {
             background-color: #f8fafc;
         }
-        /* Cabeçalho elegante com tons claros e suaves */
         .rmc-header {
             background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
             padding: 25px;
@@ -42,7 +41,6 @@ st.markdown(
             font-size: 14px;
             font-family: sans-serif;
         }
-        /* Badges de marcas no topo */
         .brand-bar {
             display: flex;
             justify-content: center;
@@ -72,51 +70,57 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Arquivos e pastas locais
-DB_OCORRENCIAS = "dados_ocorrencias.csv"
-DB_AVALIACOES = "dados_avaliacoes.csv"
-PASTA_UPLOADS = "uploads_ocorrencias"
+# Caminhos absolutos dos arquivos
+PASTA_ATUAL = os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else os.getcwd()
+DB_OCORRENCIAS = os.path.join(PASTA_ATUAL, "dados_ocorrencias.csv")
+DB_AVALIACOES = os.path.join(PASTA_ATUAL, "dados_avaliacoes.csv")
+PASTA_UPLOADS = os.path.join(PASTA_ATUAL, "uploads_ocorrencias")
 
-# Garante que a pasta de anexos existe
 if not os.path.exists(PASTA_UPLOADS):
-  os.makedirs(PASTA_UPLOADS)
+  os.makedirs(PASTA_UPLOADS, exist_ok=True)
+
+# Colunas padrão obrigatórias
+COLUNAS_OCORRENCIAS = [
+    "ID_Ocorrencia",
+    "Data_Envio",
+    "Nome_Supervisor",
+    "Numero_Pedido",
+    "Nome_Revendedora",
+    "Codigo_Revendedor",
+    "Data_Faturamento",
+    "Relato_Problema",
+    "Caminho_Anexo",
+    "Solucao",
+    "Status",
+]
 
 
-# Função para carregar os dados de ocorrências com segurança e leitura em tempo real do disco
 def carregar_ocorrencias():
-  colunas = [
-      "ID_Ocorrencia",
-      "Data_Envio",
-      "Nome_Supervisor",
-      "Numero_Pedido",
-      "Nome_Revendedora",
-      "Codigo_Revendedor",
-      "Data_Faturamento",
-      "Relato_Problema",
-      "Caminho_Anexo",
-      "Solucao",
-      "Status",
-  ]
   if os.path.exists(DB_OCORRENCIAS):
     try:
       df = pd.read_csv(DB_OCORRENCIAS, dtype=str)
-      for col in colunas:
+      for col in COLUNAS_OCORRENCIAS:
         if col not in df.columns:
           df[col] = ""
         else:
           df[col] = df[col].fillna("")
       return df
-    except Exception:
-      return pd.DataFrame(columns=colunas, dtype=str)
+    except Exception as e:
+      st.error(f"Erro ao ler CSV de ocorrências: {e}")
+      return pd.DataFrame(columns=COLUNAS_OCORRENCIAS, dtype=str)
   else:
-    return pd.DataFrame(columns=colunas, dtype=str)
+    df_vazio = pd.DataFrame(columns=COLUNAS_OCORRENCIAS, dtype=str)
+    df_vazio.to_csv(DB_OCORRENCIAS, index=False)
+    return df_vazio
 
 
 def salvar_ocorrencias(df):
-  df.to_csv(DB_OCORRENCIAS, index=False)
+  try:
+    df.to_csv(DB_OCORRENCIAS, index=False)
+  except Exception as e:
+    st.error(f"Erro ao salvar arquivo de ocorrências: {e}")
 
 
-# Função para carregar avaliações
 def carregar_avaliacoes():
   colunas = ["Data", "Nome", "Estrelas", "Sugestao"]
   if os.path.exists(DB_AVALIACOES):
@@ -138,16 +142,19 @@ def salvar_avaliacoes(df):
   df.to_csv(DB_AVALIACOES, index=False)
 
 
-# Sempre recarrega os dados do arquivo para garantir sincronia em tempo real
+# Inicializa ou atualiza o estado da sessão com os dados reais do arquivo
 st.session_state.df_ocorrencias = carregar_ocorrencias()
-st.session_state.df_avaliacoes = carregar_avaliacoes()
+
+if "df_avaliacoes" not in st.session_state:
+  st.session_state.df_avaliacoes = carregar_avaliacoes()
 
 # Abas principais
-aba_supervisor, aba_consulta, aba_gestor, aba_avaliacao = st.tabs([
+aba_supervisor, aba_consulta, aba_gestor, aba_avaliacao, aba_admin = st.tabs([
     "📝 Registrar Ocorrência",
     "🔍 Consultar Meu Pedido",
     "🕵️‍♂️ Caixa de Análise (Gestor)",
     "⭐ Avaliação e Feedback",
+    "⚙️ Sincronização & Dados",
 ])
 
 # ==========================================
@@ -155,21 +162,14 @@ aba_supervisor, aba_consulta, aba_gestor, aba_avaliacao = st.tabs([
 # ==========================================
 with aba_supervisor:
   st.subheader("📋 Novo Registro de Ocorrência")
-  st.markdown(
-      "Preencha as informações abaixo para formalizar o problema do pedido"
-      " perante a gestão."
-  )
+  st.markdown("Preencha as informações abaixo para formalizar o problema do pedido perante a gestão.")
 
   with st.form("form_reg_ocorrencia", clear_on_submit=True):
     st.markdown("#### 🔹 1. Dados do Pedido")
     col1, col2 = st.columns(2)
     with col1:
-      nome_supervisor = st.text_input(
-          "Nome do Supervisor *:", placeholder="Ex: Carlos Silva"
-      )
-      numero_pedido = st.text_input(
-          "Número do Pedido *:", placeholder="Ex: 123456"
-      )
+      nome_supervisor = st.text_input("Nome do Supervisor *:", placeholder="Ex: Carlos Silva")
+      numero_pedido = st.text_input("Número do Pedido *:", placeholder="Ex: 123456")
       nome_revendedora = st.text_input("Nome da Revendedora:")
     with col2:
       codigo_revendedor = st.text_input("Código do Revendedor:")
@@ -183,10 +183,7 @@ with aba_supervisor:
     st.markdown("#### 🔹 2. Relato do Problema e Evidência")
     relato_problema = st.text_area(
         "Relato do Problema *:",
-        placeholder=(
-            "Descreva detalhadamente o ocorrido (ex: item faltando, produto"
-            " avariado, caixa trocada)..."
-        ),
+        placeholder="Descreva detalhadamente o ocorrido...",
         height=130,
     )
 
@@ -196,25 +193,13 @@ with aba_supervisor:
     )
 
     st.markdown("<br>", unsafe_allow_html=True)
-    enviar = st.form_submit_button(
-        "🚀 Enviar Ocorrência para a Gestão", use_container_width=True
-    )
+    enviar = st.form_submit_button("🚀 Enviar Ocorrência para a Gestão", use_container_width=True)
 
     if enviar:
-      if (
-          not nome_supervisor.strip()
-          or not numero_pedido.strip()
-          or not relato_problema.strip()
-      ):
-        st.error(
-            "⚠️ Preencha os campos obrigatórios: **Nome do Supervisor**, **Número"
-            " do Pedido** e o **Relato_Problema**!"
-        )
+      if not nome_supervisor.strip() or not numero_pedido.strip() or not relato_problema.strip():
+        st.error("⚠️ Preencha os campos obrigatórios: **Nome do Supervisor**, **Número do Pedido** e o **Relato do Problema**!")
       else:
-        # Garante que pegamos os dados mais recentes antes de concatenar
-        df_atual = carregar_ocorrencias()
-
-        novo_id = f"RMC-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+        novo_id = f"RMC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
         caminho_arquivo_salvo = ""
         if arquivo_enviado is not None:
@@ -238,106 +223,68 @@ with aba_supervisor:
             "Status": "🟡 Pendente de Análise",
         }
 
-        df_atual = pd.concat(
-            [df_atual, pd.DataFrame([nova_linha])], ignore_index=True
-        )
+        # Lê o disco, adiciona a nova linha e salva imediatamente
+        df_atual = carregar_ocorrencias()
+        df_atual = pd.concat([df_atual, pd.DataFrame([nova_linha])], ignore_index=True)
         salvar_ocorrencias(df_atual)
+        
+        # Atualiza a sessão na hora
         st.session_state.df_ocorrencias = df_atual
-
-        st.success(
-            "✅ Ocorrência enviada com sucesso! A gestão foi notificada em"
-            " tempo real."
-        )
+        
+        st.success("✅ Ocorrência enviada com sucesso! A gestão foi notificada em tempo real.")
 
 # ==========================================
 # ABA 2: CONSULTA DE PEDIDOS
 # ==========================================
 with aba_consulta:
   st.subheader("🔍 Consultar Status do Pedido")
-  st.markdown(
-      "Digite o **Número do Pedido** ou o **Nome do Supervisor** para verificar"
-      " o andamento e a devolutiva."
-  )
+  st.markdown("Digite o **Número do Pedido** ou o **Nome do Supervisor** para verificar o andamento.")
 
-  termo_busca = st.text_input(
-      "Pesquisar por Pedido ou Supervisor:",
-      placeholder="Ex: 123456 ou Carlos...",
-  )
-
+  termo_busca = st.text_input("Pesquisar por Pedido ou Supervisor:", placeholder="Ex: 123456 ou Carlos...")
   df_oc = carregar_ocorrencias()
 
   if termo_busca.strip():
     filtro_resultado = df_oc[
-        df_oc["Numero_Pedido"]
-        .str.contains(termo_busca.strip(), case=False, na=False)
-        | df_oc["Nome_Supervisor"]
-        .str.contains(termo_busca.strip(), case=False, na=False)
+        df_oc["Numero_Pedido"].str.contains(termo_busca.strip(), case=False, na=False)
+        | df_oc["Nome_Supervisor"].str.contains(termo_busca.strip(), case=False, na=False)
     ]
 
     if not filtro_resultado.empty:
-      st.markdown(
-          f"Encontrado(s) **{len(filtro_resultado)}** registro(s) para sua"
-          " busca:"
-      )
+      st.markdown(f"Encontrado(s) **{len(filtro_resultado)}** registro(s):")
       st.markdown("---")
 
       for _, row in filtro_resultado.iterrows():
         with st.container(border=True):
-          st.markdown(
-              f"**ID:** `{row['ID_Ocorrencia']}` | **Enviado em:**"
-              f" `{row['Data_Envio']}`"
-          )
-          st.markdown(
-              f"👤 **Supervisor:** `{row['Nome_Supervisor']}` | 📦 **Pedido:**"
-              f" `{row['Numero_Pedido']}`"
-          )
-          st.markdown(
-              f"👩‍💼 **Revendedora:** {row['Nome_Revendedora']} (Cód:"
-              f" `{row['Codigo_Revendedor']}`)"
-          )
+          st.markdown(f"**ID:** `{row['ID_Ocorrencia']}` | **Enviado em:** `{row['Data_Envio']}`")
+          st.markdown(f"👤 **Supervisor:** `{row['Nome_Supervisor']}` | 📦 **Pedido:** `{row['Numero_Pedido']}`")
+          st.markdown(f"👩‍💼 **Revendedora:** {row['Nome_Revendedora']} (Cód: `{row['Codigo_Revendedor']}`)")
           st.markdown(f"💬 **Seu Relato:** *{row['Relato_Problema']}*")
-
-          status_atual = row["Status"]
-          st.markdown(f"📌 **Status Atual:** **{status_atual}**")
+          st.markdown(f"📌 **Status Atual:** **{row['Status']}**")
 
           solucao_resp = row["Solucao"] if pd.notna(row["Solucao"]) else ""
           if solucao_resp:
             st.success(f"🛠️ **Devolutiva da Gestão:** {solucao_resp}")
           else:
-            st.info(
-                "⏳ Este pedido aguarda análise ou verificação da equipe"
-                " gestora."
-            )
+            st.info("⏳ Este pedido aguarda análise ou verificação da equipe gestora.")
     else:
-      st.warning(
-          "⚠️ Nenhum pedido encontrado com esse termo. Verifique o número digitado"
-          " e tente novamente."
-      )
+      st.warning("⚠️ Nenhum pedido encontrado com esse termo.")
   else:
     st.info("ℹ️ Digite algo no campo acima para iniciar a pesquisa.")
 
 # ==========================================
-# ABA 3: SUA CAIXA DE ANÁLISE (GESTOR)
+# ABA 3: CAIXA DE ANÁLISE (GESTOR)
 # ==========================================
 with aba_gestor:
   st.subheader("🕵️‍♂️ Painel Gerencial de Ocorrências")
-  st.markdown(
-      "Acompanhe o fluxo de chamados, analise as evidências e registre a"
-      " devolutiva."
-  )
+  st.markdown("Acompanhe o fluxo de chamados, analise as evidências e registre a devolutiva.")
 
-  # Força a carga atualizada do banco de dados em disco
+  # Força a leitura direta do disco sempre que abrir ou interagir com esta aba
   df_oc = carregar_ocorrencias()
 
   if not df_oc.empty:
     filtro_st = st.selectbox(
         "🔍 Filtrar por Status do Processo:",
-        [
-            "Todos",
-            "🟡 Pendente de Análise",
-            "🔍 Em Verificação",
-            "✅ Problema Finalizado",
-        ],
+        ["Todos", "🟡 Pendente de Análise", "🔍 Em Verificação", "✅ Problema Finalizado"],
     )
 
     if filtro_st != "Todos":
@@ -345,9 +292,7 @@ with aba_gestor:
     else:
       df_exibir = df_oc
 
-    st.markdown(
-        f"Exibindo **{len(df_exibir)}** registro(s) encontrado(s) no sistema."
-    )
+    st.markdown(f"Exibindo **{len(df_exibir)}** registro(s) no sistema.")
     st.markdown("---")
 
     for index, row in df_exibir.iterrows():
@@ -355,18 +300,9 @@ with aba_gestor:
         col_c1, col_c2 = st.columns([2.3, 1.7])
 
         with col_c1:
-          st.markdown(
-              f"**ID:** `{row['ID_Ocorrencia']}` | **Enviado em:**"
-              f" `{row['Data_Envio']}`"
-          )
-          st.markdown(
-              f"👤 **Supervisor:** `{row['Nome_Supervisor']}` | 📦 **Pedido:**"
-              f" `{row['Numero_Pedido']}`"
-          )
-          st.markdown(
-              f"👩‍💼 **Revendedora:** {row['Nome_Revendedora']} (Cód:"
-              f" `{row['Codigo_Revendedor']}`)"
-          )
+          st.markdown(f"**ID:** `{row['ID_Ocorrencia']}` | **Enviado em:** `{row['Data_Envio']}`")
+          st.markdown(f"👤 **Supervisor:** `{row['Nome_Supervisor']}` | 📦 **Pedido:** `{row['Numero_Pedido']}`")
+          st.markdown(f"👩‍💼 **Revendedora:** {row['Nome_Revendedora']} (Cód: `{row['Codigo_Revendedor']}`)")
           st.markdown(f"📅 **Data Faturamento:** `{row['Data_Faturamento']}`")
           st.markdown(f"💬 **Relato do Supervisor:** *{row['Relato_Problema']}*")
 
@@ -375,17 +311,11 @@ with aba_gestor:
             st.markdown("📎 **Evidência Anexada:**")
             ext = caminho_anexo.lower().split(".")[-1]
             if ext in ["png", "jpg", "jpeg"]:
-              st.image(
-                  caminho_anexo,
-                  caption=f"Evidência - Pedido {row['Numero_Pedido']}",
-                  use_container_width=True,
-              )
+              st.image(caminho_anexo, caption=f"Evidência - Pedido {row['Numero_Pedido']}", use_container_width=True)
             elif ext in ["mp4", "mov", "avi"]:
               st.video(caminho_anexo)
 
-          solucao_atual = (
-              row["Solucao"] if pd.notna(row["Solucao"]) else ""
-          )
+          solucao_atual = row["Solucao"] if pd.notna(row["Solucao"]) else ""
           if solucao_atual:
             st.markdown(f"🛠️ **Devolutiva Registrada:** *{solucao_atual}*")
 
@@ -394,71 +324,59 @@ with aba_gestor:
         with col_c2:
           st.markdown("##### ⚙️ Ações e Devolutiva")
 
-          # Carrega o dataframe atualizado para garantir o índice correto
-          df_live = carregar_ocorrencias()
-          matching_rows = df_live[
-              df_live["ID_Ocorrencia"] == row["ID_Ocorrencia"]
-          ]
+          nova_solucao = st.text_area(
+              "Digite ou cole a Devolutiva:",
+              value=solucao_atual,
+              key=f"sol_text_{row['ID_Ocorrencia']}",
+              placeholder="Escreva a resposta para o supervisor...",
+              height=90,
+          )
 
-          if not matching_rows.empty:
-            idx_real = matching_rows.index[0]
-
-            nova_solucao = st.text_area(
-                "Digite ou cole a Devolutiva:",
-                value=solucao_atual,
-                key=f"sol_text_{row['ID_Ocorrencia']}",
-                placeholder="Escreva a resposta para o supervisor...",
-                height=90,
-            )
-
-            if st.button(
-                "💾 Salvar Devolutiva", key=f"save_sol_{row['ID_Ocorrencia']}"
-            ):
-              df_live.at[idx_real, "Solucao"] = nova_solucao.strip()
-              salvar_ocorrencias(df_live)
+          if st.button("💾 Salvar Devolutiva", key=f"save_sol_{row['ID_Ocorrencia']}"):
+            df_atualizado = carregar_ocorrencias()
+            idx_match = df_atualizado[df_atualizado["ID_Ocorrencia"] == row["ID_Ocorrencia"]].index
+            if not idx_match.empty:
+              df_atualizado.at[idx_match[0], "Solucao"] = nova_solucao.strip()
+              salvar_ocorrencias(df_atualizado)
               st.toast("Devolutiva salva com sucesso!", icon="💾")
               st.rerun()
 
-            st.markdown("---")
-
-            col_b1, col_b2 = st.columns(2)
-            with col_b1:
-              if st.button(
-                  "🔍 Em Verif.", key=f"verif_{row['ID_Ocorrencia']}"
-              ):
-                df_live.at[idx_real, "Status"] = "🔍 Em Verificação"
-                salvar_ocorrencias(df_live)
+          st.markdown("---")
+          col_b1, col_b2 = st.columns(2)
+          with col_b1:
+            if st.button("🔍 Em Verif.", key=f"verif_{row['ID_Ocorrencia']}"):
+              df_atualizado = carregar_ocorrencias()
+              idx_match = df_atualizado[df_atualizado["ID_Ocorrencia"] == row["ID_Ocorrencia"]].index
+              if not idx_match.empty:
+                df_atualizado.at[idx_match[0], "Status"] = "🔍 Em Verificação"
+                salvar_ocorrencias(df_atualizado)
                 st.rerun()
 
-            with col_b2:
-              if st.button("✅ Finalizar", key=f"fin_{row['ID_Ocorrencia']}"):
-                df_live.at[idx_real, "Status"] = "✅ Problema Finalizado"
-                salvar_ocorrencias(df_live)
+          with col_b2:
+            if st.button("✅ Finalizar", key=f"fin_{row['ID_Ocorrencia']}"):
+              df_atualizado = carregar_ocorrencias()
+              idx_match = df_atualizado[df_atualizado["ID_Ocorrencia"] == row["ID_Ocorrencia"]].index
+              if not idx_match.empty:
+                df_atualizado.at[idx_match[0], "Status"] = "✅ Problema Finalizado"
+                salvar_ocorrencias(df_atualizado)
                 st.rerun()
 
-            if st.button(
-                "🗑️ Excluir",
-                key=f"del_{row['ID_Ocorrencia']}",
-                use_container_width=True,
-            ):
-              df_live = df_live[
-                  df_live["ID_Ocorrencia"] != row["ID_Ocorrencia"]
-              ].reset_index(drop=True)
-              salvar_ocorrencias(df_live)
-              st.warning("Registro excluído!")
-              st.rerun()
+          if st.button("🗑️ Excluir", key=f"del_{row['ID_Ocorrencia']}", use_container_width=True):
+            df_atualizado = carregar_ocorrencias()
+            df_atualizado = df_atualizado[df_atualizado["ID_Ocorrencia"] != row["ID_Ocorrencia"]].reset_index(drop=True)
+            salvar_ocorrencias(df_atualizado)
+            st.warning("Registro excluído!")
+            st.rerun()
   else:
     st.info("🎉 Nenhuma ocorrência registrada no momento.")
+    st.markdown(f"📁 **Diagnóstico do Arquivo:** Salvando em `{DB_OCORRENCIAS}`")
 
 # ==========================================
 # ABA 4: AVALIAÇÃO E SATISFAÇÃO
 # ==========================================
 with aba_avaliacao:
   st.subheader("⭐ Pesquisa de Satisfação e Melhorias")
-  st.markdown(
-      "Sua opinião é fundamental para aprimorarmos nossa Central de"
-      " Ocorrências. Avalie sua experiência abaixo!"
-  )
+  st.markdown("Sua opinião é fundamental para aprimorarmos nossa Central de Ocorrências.")
 
   with st.form("form_avaliacao", clear_on_submit=True):
     mapa_estrelas = {
@@ -468,58 +386,54 @@ with aba_avaliacao:
         "⭐⭐⭐⭐ (4 - Bom)": "4",
         "⭐⭐⭐⭐⭐ (5 - Excelente)": "5",
     }
+    escolha_estrela = st.selectbox("Como você avalia o sistema?", options=list(mapa_estrelas.keys()))
+    nome_avaliador = st.text_input("Seu Nome:", placeholder="Ex: Maria Oliveira")
+    sugestao_melhoria = st.text_area("Sugestões de melhorias ou comentários:", height=120)
 
-    escolha_estrela = st.selectbox(
-        "Como você avalia o sistema?", options=list(mapa_estrelas.keys())
-    )
-
-    nome_avaliador = st.text_input(
-        "Seu Nome:", placeholder="Ex: Maria Oliveira"
-    )
-
-    sugestao_melhoria = st.text_area(
-        "Sugestões de melhorias ou comentários:",
-        placeholder=(
-            "Deixe aqui sua sugestão para tornarmos o aplicativo ainda melhor..."
-        ),
-        height=120,
-    )
-
-    btn_enviar_avaliacao = st.form_submit_button(
-        "📥 Enviar Avaliação", use_container_width=True
-    )
+    btn_enviar_avaliacao = st.form_submit_button("📥 Enviar Avaliação", use_container_width=True)
 
     if btn_enviar_avaliacao:
       if not nome_avaliador.strip():
-        st.error("⚠️ Por favor, preencha o campo **Seu Nome**!")
+        st.error("⚠️ Preencha o campo **Seu Nome**!")
       else:
-        df_av_atual = carregar_avaliacoes()
         nova_avaliacao = {
             "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "Nome": str(nome_avaliador).strip().upper(),
             "Estrelas": mapa_estrelas[escolha_estrela],
             "Sugestao": str(sugestao_melhoria).strip(),
         }
-
-        df_av_atual = pd.concat(
-            [df_av_atual, pd.DataFrame([nova_avaliacao])], ignore_index=True
-        )
-        salvar_avaliacoes(df_av_atual)
-        st.session_state.df_avaliacoes = df_av_atual
+        df_av = carregar_avaliacoes()
+        df_av = pd.concat([df_av, pd.DataFrame([nova_avaliacao])], ignore_index=True)
+        salvar_avaliacoes(df_av)
         st.success("🎉 Muito obrigado! Sua avaliação foi enviada com sucesso.")
 
+# ==========================================
+# ABA 5: SINCRONIZAÇÃO E BACKUP DE EMERGÊNCIA
+# ==========================================
+with aba_admin:
+  st.subheader("⚙️ Central de Sincronização e Backup")
+  st.markdown("Use esta aba para **baixar** ou **enviar** o arquivo de dados caso precise unificar registros de computadores diferentes.")
+
+  df_atual_admin = carregar_ocorrencias()
+  st.markdown(f"📊 Total de registros salvos no banco atual: **{len(df_atual_admin)}**")
+
+  if not df_atual_admin.empty:
+    csv_dados = df_atual_admin.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Baixar Backup de Ocorrências (.csv)",
+        data=csv_dados,
+        file_name="backup_dados_ocorrencias.csv",
+        mime="text/csv",
+    )
+
   st.markdown("---")
-  with st.expander("📊 Ver Feedback Recebido (Painel da Gestão)"):
-    df_av = carregar_avaliacoes()
-    if not df_av.empty:
-      st.markdown(f"Total de avaliações recebidas: **{len(df_av)}**")
-      for _, row_av in df_av.iterrows():
-        st.markdown(
-            f"**{row_av['Nome']}** ({row_av['Data']}) - Nota:"
-            f" `{'⭐' * int(row_av['Estrelas'])}`"
-        )
-        if row_av["Sugestao"]:
-          st.markdown(f"💬 *\"{row_av['Sugestao']}\"*")
-        st.markdown("---")
-    else:
-      st.info("Nenhuma avaliação registrada até o momento.")
+  st.markdown("##### 📤 Importar / Restaurar Banco de Dados")
+  arquivo_importado = st.file_uploader("Envie um arquivo `dados_ocorrencias.csv` para unificar os registros:", type=["csv"])
+  
+  if arquivo_importado is not None:
+    try:
+      df_importado = pd.read_csv(arquivo_importado, dtype=str)
+      salvar_ocorrencias(df_importado)
+      st.success("✅ Base de dados importada e sincronizada com sucesso! Recarregue a página.")
+    except Exception as e:
+      st.error(f"Erro ao importar arquivo: {e}")
