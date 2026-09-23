@@ -70,7 +70,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Caminhos absolutos dos arquivos
+# Caminho fixo e absoluto para o arquivo CSV de ocorrências
 PASTA_ATUAL = os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else os.getcwd()
 DB_OCORRENCIAS = os.path.join(PASTA_ATUAL, "dados_ocorrencias.csv")
 DB_AVALIACOES = os.path.join(PASTA_ATUAL, "dados_avaliacoes.csv")
@@ -104,12 +104,12 @@ def carregar_ocorrencias():
         else:
           df[col] = df[col].fillna("")
       
-      # Filtra rigorosamente apenas linhas que tenham realmente um ID ou Nome de Supervisor preenchido
+      # Remove linhas vazias se houverem
       if not df.empty:
         df = df[df["ID_Ocorrencia"].str.strip() != ""]
         df = df[df["Nome_Supervisor"].str.strip() != ""]
 
-      # Se após a limpeza o DataFrame estiver vazio, cria um único exemplo limpo
+      # SÓ cria o exemplo automático se o arquivo estiver TOTALMENTE VAZIO (sem nenhuma linha real)
       if df.empty:
         df_exemplo = pd.DataFrame([{
             "ID_Ocorrencia": "RMC-EXEMPLO01",
@@ -124,7 +124,6 @@ def carregar_ocorrencias():
             "Solucao": "Exemplo de devolutiva da gestão.",
             "Status": "🟡 Pendente de Análise"
         }])
-        df_exemplo.to_csv(DB_OCORRENCIAS, index=False)
         return df_exemplo
 
       return df
@@ -132,6 +131,7 @@ def carregar_ocorrencias():
       st.error(f"Erro ao ler CSV de ocorrências: {e}")
       return pd.DataFrame(columns=COLUNAS_OCORRENCIAS, dtype=str)
   else:
+    # Se o arquivo não existir fisicamente, cria o exemplo
     df_exemplo = pd.DataFrame([{
         "ID_Ocorrencia": "RMC-EXEMPLO01",
         "Data_Envio": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -262,6 +262,10 @@ with aba_supervisor:
         }
 
         df_atual = carregar_ocorrencias()
+        # Remove o exemplo se houver apenas ele antes de adicionar o real
+        if len(df_atual) == 1 and df_atual.iloc[0]["ID_Ocorrencia"] == "RMC-EXEMPLO01":
+          df_atual = pd.DataFrame(columns=COLUNAS_OCORRENCIAS, dtype=str)
+
         df_atual = pd.concat([df_atual, pd.DataFrame([nova_linha])], ignore_index=True)
         salvar_ocorrencias(df_atual)
         st.session_state.df_ocorrencias = df_atual
@@ -449,7 +453,6 @@ with aba_admin:
   st.subheader("⚙️ Central de Sincronização e Backup")
   st.markdown("Use esta aba para **baixar** ou **enviar** o arquivo de dados caso precise unificar registros de computadores diferentes.")
 
-  # Se quiser limpar todos os registros antigos corrompidos de uma vez, clique no botão abaixo:
   if st.button("🗑️ Limpar / Resetar Base de Dados de Ocorrências"):
     if os.path.exists(DB_OCORRENCIAS):
       os.remove(DB_OCORRENCIAS)
