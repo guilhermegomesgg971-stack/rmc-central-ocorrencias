@@ -104,7 +104,13 @@ def carregar_ocorrencias():
         else:
           df[col] = df[col].fillna("")
       
-      if df.empty or len(df.dropna(how="all")) == 0:
+      # Filtra rigorosamente apenas linhas que tenham realmente um ID ou Nome de Supervisor preenchido
+      if not df.empty:
+        df = df[df["ID_Ocorrencia"].str.strip() != ""]
+        df = df[df["Nome_Supervisor"].str.strip() != ""]
+
+      # Se após a limpeza o DataFrame estiver vazio, cria um único exemplo limpo
+      if df.empty:
         df_exemplo = pd.DataFrame([{
             "ID_Ocorrencia": "RMC-EXEMPLO01",
             "Data_Envio": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -145,6 +151,9 @@ def carregar_ocorrencias():
 
 def salvar_ocorrencias(df):
   try:
+    if not df.empty:
+      df = df[df["ID_Ocorrencia"].str.strip() != ""]
+      df = df[df["Nome_Supervisor"].str.strip() != ""]
     df.to_csv(DB_OCORRENCIAS, index=False)
   except Exception as e:
     st.error(f"Erro ao salvar arquivo de ocorrências: {e}")
@@ -321,7 +330,6 @@ with aba_gestor:
     st.markdown("---")
 
     for index, row in df_exibir.iterrows():
-      # Adicionamos o índice (index) na chave para garantir total unicidade e evitar o erro
       id_unico = f"{row['ID_Ocorrencia']}_{index}"
 
       with st.container(border=True):
@@ -441,13 +449,20 @@ with aba_admin:
   st.subheader("⚙️ Central de Sincronização e Backup")
   st.markdown("Use esta aba para **baixar** ou **enviar** o arquivo de dados caso precise unificar registros de computadores diferentes.")
 
+  # Se quiser limpar todos os registros antigos corrompidos de uma vez, clique no botão abaixo:
+  if st.button("🗑️ Limpar / Resetar Base de Dados de Ocorrências"):
+    if os.path.exists(DB_OCORRENCIAS):
+      os.remove(DB_OCORRENCIAS)
+    st.success("Base limpa com sucesso! Recarregue a página.")
+    st.rerun()
+
   df_atual_admin = carregar_ocorrencias()
-  st.markdown(f"📊 Total de registros salvos no banco atual: **{len(df_atual_admin)}**")
+  st.markdown(f"📊 Total de registros válidos no banco atual: **{len(df_atual_admin)}**")
 
   if not df_atual_admin.empty:
     csv_dados = df_atual_admin.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="📥 Baixar Backup de Ocorrências (.csv)",
+        label="📥 Backup de Ocorrências (.csv)",
         data=csv_dados,
         file_name="backup_dados_ocorrencias.csv",
         mime="text/csv",
@@ -456,7 +471,7 @@ with aba_admin:
 
   st.markdown("---")
   st.markdown("##### 📤 Importar / Restaurar Banco de Dados")
-  arquivo_importado = st.file_uploader("Envie um arquivo `dados_ocorrencias.csv` para unificar os registros:", type=["csv"], key="uploader_csv_admin")
+  arquivo_importado = st.file_uploader("Envie um arquivo `dados_ocorrencias.csv` válido:", type=["csv"], key="uploader_csv_admin")
   
   if arquivo_importado is not None:
     try:
