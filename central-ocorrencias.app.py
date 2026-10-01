@@ -74,7 +74,6 @@ st.markdown(
 
 # Arquivos e pastas locais
 DB_OCORRENCIAS = "dados_ocorrencias.csv"
-DB_AVALIACOES = "dados_avaliacoes.csv"
 PASTA_UPLOADS = "uploads_ocorrencias"
 
 # Garante que a pasta de anexos existe
@@ -82,7 +81,7 @@ if not os.path.exists(PASTA_UPLOADS):
   os.makedirs(PASTA_UPLOADS)
 
 
-# Função para carregar os dados de ocorrências com segurança
+# Função para carregar os dados com segurança
 def carregar_ocorrencias():
   colunas = [
       "ID_Ocorrencia",
@@ -112,45 +111,20 @@ def carregar_ocorrencias():
     return pd.DataFrame(columns=colunas, dtype=str)
 
 
+# Função para salvar os dados
 def salvar_ocorrencias(df):
   df.to_csv(DB_OCORRENCIAS, index=False)
-
-
-# Função para carregar avaliações
-def carregar_avaliacoes():
-  colunas = ["Data", "Nome", "Estrelas", "Sugestao"]
-  if os.path.exists(DB_AVALIACOES):
-    try:
-      df = pd.read_csv(DB_AVALIACOES, dtype=str)
-      for col in colunas:
-        if col not in df.columns:
-          df[col] = ""
-        else:
-          df[col] = df[col].fillna("")
-      return df
-    except Exception:
-      return pd.DataFrame(columns=colunas, dtype=str)
-  else:
-    return pd.DataFrame(columns=colunas, dtype=str)
-
-
-def salvar_avaliacoes(df):
-  df.to_csv(DB_AVALIACOES, index=False)
 
 
 # Inicializa o estado da sessão
 if "df_ocorrencias" not in st.session_state:
   st.session_state.df_ocorrencias = carregar_ocorrencias()
 
-if "df_avaliacoes" not in st.session_state:
-  st.session_state.df_avaliacoes = carregar_avaliacoes()
-
-# Abas principais (Adicionada a aba de Avaliação e Satisfação)
-aba_supervisor, aba_consulta, aba_gestor, aba_avaliacao = st.tabs([
+# Abas principais (Adicionada a aba de Pesquisa/Consulta)
+aba_supervisor, aba_consulta, aba_gestor = st.tabs([
     "📝 Registrar Ocorrência",
     "🔍 Consultar Meu Pedido",
     "🕵️‍♂️ Caixa de Análise (Gestor)",
-    "⭐ Avaliação e Feedback",
 ])
 
 # ==========================================
@@ -258,7 +232,7 @@ with aba_consulta:
   st.subheader("🔍 Consultar Status do Pedido")
   st.markdown(
       "Digite o **Número do Pedido** ou o **Nome do Supervisor** para verificar"
-      " o andamento e a devolutiva."
+      " o andamento e a solução."
   )
 
   termo_busca = st.text_input(
@@ -269,6 +243,7 @@ with aba_consulta:
   df_oc = st.session_state.df_ocorrencias
 
   if termo_busca.strip():
+    # Filtra considerando tanto o número do pedido quanto o nome do supervisor (ignorando maiúsculas/minúsculas)
     filtro_resultado = df_oc[
         df_oc["Numero_Pedido"]
         .str.contains(termo_busca.strip(), case=False, na=False)
@@ -299,12 +274,14 @@ with aba_consulta:
           )
           st.markdown(f"💬 **Seu Relato:** *{row['Relato_Problema']}*")
 
+          # Exibe o status com destaque
           status_atual = row["Status"]
           st.markdown(f"📌 **Status Atual:** **{status_atual}**")
 
+          # Exibe a solução se houver
           solucao_resp = row["Solucao"] if pd.notna(row["Solucao"]) else ""
           if solucao_resp:
-            st.success(f"🛠️ **Devolutiva da Gestão:** {solucao_resp}")
+            st.success(f"🛠️ **Solução Registrada pela Gestão:** {solucao_resp}")
           else:
             st.info(
                 "⏳ Este pedido aguarda análise ou verificação da equipe"
@@ -319,13 +296,13 @@ with aba_consulta:
     st.info("ℹ️ Digite algo no campo acima para iniciar a pesquisa.")
 
 # ==========================================
-# ABA 3: SUA CAIXA DE ANÁLISE (GESTOR)
+# ABA 3: SUA CAIXA DE ANÁLISE (GESTOR) - MANTIDA IGUAL
 # ==========================================
 with aba_gestor:
   st.subheader("🕵️‍♂️ Painel Gerencial de Ocorrências")
   st.markdown(
-      "Acompanhe o fluxo de chamados, analise as evidências e registre a"
-      " devolutiva."
+      "Acompanhe o fluxo de chamados, analise as evidências e registre as"
+      " soluções aplicadas."
   )
 
   df_oc = st.session_state.df_ocorrencias
@@ -371,6 +348,7 @@ with aba_gestor:
           st.markdown(f"📅 **Data Faturamento:** `{row['Data_Faturamento']}`")
           st.markdown(f"💬 **Relato do Supervisor:** *{row['Relato_Problema']}*")
 
+          # Renderiza anexo caso exista
           caminho_anexo = row["Caminho_Anexo"]
           if caminho_anexo and os.path.exists(caminho_anexo):
             st.markdown("📎 **Evidência Anexada:**")
@@ -384,16 +362,17 @@ with aba_gestor:
             elif ext in ["mp4", "mov", "avi"]:
               st.video(caminho_anexo)
 
+          # Exibe a solução registrada
           solucao_atual = (
               row["Solucao"] if pd.notna(row["Solucao"]) else ""
           )
           if solucao_atual:
-            st.markdown(f"🛠️ **Devolutiva Registrada:** *{solucao_atual}*")
+            st.markdown(f"🛠️ **Como foi resolvido:** *{solucao_atual}*")
 
           st.markdown(f"📌 **Status Atual:** **{row['Status']}**")
 
         with col_c2:
-          st.markdown("##### ⚙️ Ações e Devolutiva")
+          st.markdown("##### ⚙️ Ações e Solução")
 
           idx_real = st.session_state.df_ocorrencias[
               st.session_state.df_ocorrencias["ID_Ocorrencia"]
@@ -401,21 +380,20 @@ with aba_gestor:
           ].index[0]
 
           nova_solucao = st.text_area(
-              "Digite ou cole a Devolutiva:",
+              "Registrar Solução:",
               value=solucao_atual,
               key=f"sol_text_{row['ID_Ocorrencia']}",
-              placeholder="Escreva a resposta para o supervisor...",
-              height=90,
+              height=85,
           )
 
           if st.button(
-              "💾 Salvar Devolutiva", key=f"save_sol_{row['ID_Ocorrencia']}"
+              "💾 Salvar Solução", key=f"save_sol_{row['ID_Ocorrencia']}"
           ):
             st.session_state.df_ocorrencias.at[idx_real, "Solucao"] = (
                 nova_solucao.strip()
             )
             salvar_ocorrencias(st.session_state.df_ocorrencias)
-            st.toast("Devolutiva salva com sucesso!", icon="💾")
+            st.toast("Solução salva com sucesso!", icon="💾")
             st.rerun()
 
           st.markdown("---")
@@ -455,84 +433,3 @@ with aba_gestor:
             st.rerun()
   else:
     st.info("🎉 Nenhuma ocorrência registrada no momento.")
-
-# ==========================================
-# ABA 4: AVALIAÇÃO E SATISFAÇÃO
-# ==========================================
-with aba_avaliacao:
-  st.subheader("⭐ Pesquisa de Satisfação e Melhorias")
-  st.markdown(
-      "Sua opinião é fundamental para aprimorarmos nossa Central de"
-      " Ocorrências. Avalie sua experiência abaixo!"
-  )
-
-  with st.form("form_avaliacao", clear_on_submit=True):
-    # Sistema de estrelas formatado em texto/opções claras
-    mapa_estrelas = {
-        "⭐ (1 - Muito Ruim)": "1",
-        "⭐⭐ (2 - Ruim)": "2",
-        "⭐⭐⭐ (3 - Regular)": "3",
-        "⭐⭐⭐⭐ (4 - Bom)": "4",
-        "⭐⭐⭐⭐⭐ (5 - Excelente)": "5",
-    }
-
-    escolha_estrela = st.selectbox(
-        "Como você avalia o sistema?", options=list(mapa_estrelas.keys())
-    )
-
-    nome_avaliador = st.text_input(
-        "Seu Nome:", placeholder="Ex: Maria Oliveira"
-    )
-
-    sugestao_melhoria = st.text_area(
-        "Sugestões de melhorias ou comentários:",
-        placeholder=(
-            "Deixe aqui sua sugestão para tornarmos o aplicativo ainda melhor..."
-        ),
-        height=120,
-    )
-
-    btn_enviar_avaliacao = st.form_submit_button(
-        "📥 Enviar Avaliação", use_container_width=True
-    )
-
-    if btn_enviar_avaliacao:
-      if not nome_avaliador.strip():
-        st.error("⚠️ Por favor, preencha o campo **Seu Nome**!")
-      else:
-        nova_avaliacao = {
-            "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "Nome": str(nome_avaliador).strip().upper(),
-            "Estrelas": mapa_estrelas[escolha_estrela],
-            "Sugestao": str(sugestao_melhoria).strip(),
-        }
-
-        st.session_state.df_avaliacoes = pd.concat(
-            [
-                st.session_state.df_avaliacoes,
-                pd.DataFrame([nova_avaliacao]),
-            ],
-            ignore_index=True,
-        )
-        salvar_avaliacoes(st.session_state.df_avaliacoes)
-        st.success("🎉 Muito obrigado! Sua avaliação foi enviada com sucesso.")
-
-  # Seção para a gestão ver o resumo das avaliações (opcional dentro da mesma aba)
-  st.markdown("---")
-  with st.expander("📊 Ver Feedback Recebido (Painel da Gestão)"):
-    df_av = st.session_state.df_avaliacoes
-    if not df_av.empty:
-      st.markdown(
-          f"Total de avaliações recebidas: **{len(df_av)}**"
-      )
-      for _, row_av in df_av.iterrows():
-        st.markdown(
-            f"**{row_av['Name' if 'Name' in row_av else 'Nome']}** ("
-            f"{row_av['Data']}) - Nota:"
-            f" `{'⭐' * int(row_av['Estrelas'])}`"
-        )
-        if row_av["Sugestao"]:
-          st.markdown(f"💬 *\"{row_av['Sugestao']}\"*")
-        st.markdown("---")
-    else:
-      st.info("Nenhuma avaliação registrada até o momento.")
