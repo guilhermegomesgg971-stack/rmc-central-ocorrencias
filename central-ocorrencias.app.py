@@ -1,12 +1,13 @@
 from datetime import datetime
 import os
+import sqlite3
 import pandas as pd
 import streamlit as st
 
 # Configuração da Página
 st.set_page_config(
     page_title="Central de Ocorrências | Grupo RMC Mariano",
-    page_icon="🛡️",
+    page_icon="🛡️️",
     layout="centered",
 )
 
@@ -72,17 +73,50 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Arquivos e pastas locais
-DB_OCORRENCIAS = "dados_ocorrencias.csv"
-PASTA_UPLOADS = "uploads_ocorrencias"
+# Configuração do Banco de Dados SQLite (Persistente na nuvem)
+PASTA_ATUAL = (
+    os.path.dirname(os.path.abspath(__file__))
+    if "__file__" in locals()
+    else os.getcwd()
+)
+DB_PATH = os.path.join(PASTA_ATUAL, "rmc_ocorrencias.db")
+PASTA_UPLOADS = os.path.join(PASTA_ATUAL, "uploads_ocorrencias")
 
-# Garante que a pasta de anexos existe
 if not os.path.exists(PASTA_UPLOADS):
-  os.makedirs(PASTA_UPLOADS)
+  os.makedirs(PASTA_UPLOADS, exist_ok=True)
 
 
-# Função para carregar os dados com segurança
+def init_db():
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ocorrencias (
+            ID_Ocorrencia TEXT PRIMARY KEY,
+            Data_Envio TEXT,
+            Nome_Supervisor TEXT,
+            Numero_Pedido TEXT,
+            Nome_Revendedora TEXT,
+            Codigo_Revendedor TEXT,
+            Data_Faturamento TEXT,
+            Relato_Problema TEXT,
+            Caminho_Anexo TEXT,
+            Solucao TEXT,
+            Status TEXT
+        )
+    """)
+  conn.commit()
+  conn.close()
+
+
+init_db()
+
+
+# Função para carregar os dados do banco SQLite
 def carregar_ocorrencias():
+  conn = sqlite3.connect(DB_PATH)
+  df = pd.read_sql_query("SELECT * FROM ocorrencias", conn)
+  conn.close()
+
   colunas = [
       "ID_Ocorrencia",
       "Data_Envio",
@@ -96,31 +130,66 @@ def carregar_ocorrencias():
       "Solucao",
       "Status",
   ]
-  if os.path.exists(DB_OCORRENCIAS):
-    try:
-      df = pd.read_csv(DB_OCORRENCIAS, dtype=str)
-      for col in colunas:
-        if col not in df.columns:
-          df[col] = ""
-        else:
-          df[col] = df[col].fillna("")
-      return df
-    except Exception:
-      return pd.DataFrame(columns=colunas, dtype=str)
-  else:
+  if df.empty:
     return pd.DataFrame(columns=colunas, dtype=str)
+  for col in colunas:
+    if col not in df.columns:
+      df[col] = ""
+    else:
+      df[col] = df[col].fillna("")
+  return df
 
 
-# Função para salvar os dados
-def salvar_ocorrencias(df):
-  df.to_csv(DB_OCORRENCIAS, index=False)
+# Função para salvar uma nova ocorrência ou atualizar no banco
+def salvar_nova_ocorrencia(dados):
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+  cursor.execute(
+      """
+        INSERT OR REPLACE INTO ocorrencias VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+      (
+          dados["ID_Ocorrencia"],
+          dados["Data_Envio"],
+          dados["Nome_Supervisor"],
+          dados["Numero_Pedido"],
+          dados["Nome_Revendedora"],
+          dados["Codigo_Revendedor"],
+          dados["Data_Faturamento"],
+          dados["Relato_Problema"],
+          dados["Caminho_Anexo"],
+          dados["Solucao"],
+          dados["Status"],
+      ),
+  )
+  conn.commit()
+  conn.close()
+
+
+def atualizar_campo_ocorrencia(id_ocorrencia, coluna, valor):
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+  cursor.execute(
+      f"UPDATE ocorrencias SET {coluna} = ? WHERE ID_Ocorrencia = ?",
+      (valor, id_ocorrencia),
+  )
+  conn.commit()
+  conn.close()
+
+
+def excluir_ocorrencia(id_ocorrencia):
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+  cursor.execute("DELETE FROM ocorrencias WHERE ID_Ocorrencia = ?", (id_ocorrencia,))
+  conn.commit()
+  conn.close()
 
 
 # Inicializa o estado da sessão
 if "df_ocorrencias" not in st.session_state:
   st.session_state.df_ocorrencias = carregar_ocorrencias()
 
-# Abas principais (Adicionada a aba de Pesquisa/Consulta)
+# Abas principais (mantidas exatamente as suas)
 aba_supervisor, aba_consulta, aba_gestor = st.tabs([
     "📝 Registrar Ocorrência",
     "🔍 Consultar Meu Pedido",
@@ -133,8 +202,8 @@ aba_supervisor, aba_consulta, aba_gestor = st.tabs([
 with aba_supervisor:
   st.subheader("📋 Novo Registro de Ocorrência")
   st.markdown(
-      "Preencha as informações abaixo para formalizar o problema do pedido"
-      " perante a gestão."
+      "Preencha as informações abaixo para formalizar o problema do pedido perante"
+      " a gestão."
   )
 
   with st.form("form_reg_ocorrencia", clear_on_submit=True):
@@ -144,9 +213,7 @@ with aba_supervisor:
       nome_supervisor = st.text_input(
           "Nome do Supervisor *:", placeholder="Ex: Carlos Silva"
       )
-      numero_pedido = st.text_input(
-          "Número do Pedido *:", placeholder="Ex: 123456"
-      )
+      numero_pedido = st.text_input("Número do Pedido *:", placeholder="Ex: 123456")
       nome_revendedora = st.text_input("Nome da Revendedora:")
     with col2:
       codigo_revendedor = st.text_input("Código do Revendedor:")
@@ -212,14 +279,10 @@ with aba_supervisor:
             "Status": "🟡 Pendente de Análise",
         }
 
-        st.session_state.df_ocorrencias = pd.concat(
-            [
-                st.session_state.df_ocorrencias,
-                pd.DataFrame([nova_linha]),
-            ],
-            ignore_index=True,
-        )
-        salvar_ocorrencias(st.session_state.df_ocorrencias)
+        # Salva diretamente no banco de dados SQLite persistente
+        salvar_nova_ocorrencia(nova_linha)
+        st.session_state.df_ocorrencias = carregar_ocorrencias()
+
         st.success(
             "✅ Ocorrência enviada com sucesso! A gestão foi notificada em"
             " tempo real."
@@ -240,10 +303,11 @@ with aba_consulta:
       placeholder="Ex: 123456 ou Carlos...",
   )
 
+  # Atualiza os dados do banco para garantir consulta em tempo real
+  st.session_state.df_ocorrencias = carregar_ocorrencias()
   df_oc = st.session_state.df_ocorrencias
 
   if termo_busca.strip():
-    # Filtra considerando tanto o número do pedido quanto o nome do supervisor (ignorando maiúsculas/minúsculas)
     filtro_resultado = df_oc[
         df_oc["Numero_Pedido"]
         .str.contains(termo_busca.strip(), case=False, na=False)
@@ -274,11 +338,9 @@ with aba_consulta:
           )
           st.markdown(f"💬 **Seu Relato:** *{row['Relato_Problema']}*")
 
-          # Exibe o status com destaque
           status_atual = row["Status"]
           st.markdown(f"📌 **Status Atual:** **{status_atual}**")
 
-          # Exibe a solução se houver
           solucao_resp = row["Solucao"] if pd.notna(row["Solucao"]) else ""
           if solucao_resp:
             st.success(f"🛠️ **Solução Registrada pela Gestão:** {solucao_resp}")
@@ -289,14 +351,14 @@ with aba_consulta:
             )
     else:
       st.warning(
-          "⚠️ Nenhum pedido encontrado com esse termo. Verifique o número digitado"
-          " e tente novamente."
+          "⚠️ Nenhum pedido encontrado com esse termo. Verifique o número"
+          " digitado e tente novamente."
       )
   else:
     st.info("ℹ️ Digite algo no campo acima para iniciar a pesquisa.")
 
 # ==========================================
-# ABA 3: SUA CAIXA DE ANÁLISE (GESTOR) - MANTIDA IGUAL
+# ABA 3: SUA CAIXA DE ANÁLISE (GESTOR)
 # ==========================================
 with aba_gestor:
   st.subheader("🕵️‍♂️ Painel Gerencial de Ocorrências")
@@ -305,6 +367,7 @@ with aba_gestor:
       " soluções aplicadas."
   )
 
+  st.session_state.df_ocorrencias = carregar_ocorrencias()
   df_oc = st.session_state.df_ocorrencias
 
   if not df_oc.empty:
@@ -348,7 +411,6 @@ with aba_gestor:
           st.markdown(f"📅 **Data Faturamento:** `{row['Data_Faturamento']}`")
           st.markdown(f"💬 **Relato do Supervisor:** *{row['Relato_Problema']}*")
 
-          # Renderiza anexo caso exista
           caminho_anexo = row["Caminho_Anexo"]
           if caminho_anexo and os.path.exists(caminho_anexo):
             st.markdown("📎 **Evidência Anexada:**")
@@ -362,7 +424,6 @@ with aba_gestor:
             elif ext in ["mp4", "mov", "avi"]:
               st.video(caminho_anexo)
 
-          # Exibe a solução registrada
           solucao_atual = (
               row["Solucao"] if pd.notna(row["Solucao"]) else ""
           )
@@ -374,11 +435,6 @@ with aba_gestor:
         with col_c2:
           st.markdown("##### ⚙️ Ações e Solução")
 
-          idx_real = st.session_state.df_ocorrencias[
-              st.session_state.df_ocorrencias["ID_Ocorrencia"]
-              == row["ID_Ocorrencia"]
-          ].index[0]
-
           nova_solucao = st.text_area(
               "Registrar Solução:",
               value=solucao_atual,
@@ -389,10 +445,9 @@ with aba_gestor:
           if st.button(
               "💾 Salvar Solução", key=f"save_sol_{row['ID_Ocorrencia']}"
           ):
-            st.session_state.df_ocorrencias.at[idx_real, "Solucao"] = (
-                nova_solucao.strip()
+            atualizar_campo_ocorrencia(
+                row["ID_Ocorrencia"], "Solucao", nova_solucao.strip()
             )
-            salvar_ocorrencias(st.session_state.df_ocorrencias)
             st.toast("Solução salva com sucesso!", icon="💾")
             st.rerun()
 
@@ -403,20 +458,18 @@ with aba_gestor:
             if st.button(
                 "🔍 Em Verif.", key=f"verif_{row['ID_Ocorrencia']}"
             ):
-              st.session_state.df_ocorrencias.at[idx_real, "Status"] = (
-                  "🔍 Em Verificação"
+              atualizar_campo_ocorrencia(
+                  row["ID_Ocorrencia"], "Status", "🔍 Em Verificação"
               )
-              salvar_ocorrencias(st.session_state.df_ocorrencias)
               st.rerun()
 
           with col_b2:
             if st.button(
                 "✅ Finalizar", key=f"fin_{row['ID_Ocorrencia']}"
             ):
-              st.session_state.df_ocorrencias.at[idx_real, "Status"] = (
-                  "✅ Problema Finalizado"
+              atualizar_campo_ocorrencia(
+                  row["ID_Ocorrencia"], "Status", "✅ Problema Finalizado"
               )
-              salvar_ocorrencias(st.session_state.df_ocorrencias)
               st.rerun()
 
           if st.button(
@@ -424,11 +477,7 @@ with aba_gestor:
               key=f"del_{row['ID_Ocorrencia']}",
               use_container_width=True,
           ):
-            st.session_state.df_ocorrencias = st.session_state.df_ocorrencias[
-                st.session_state.df_ocorrencias["ID_Ocorrencia"]
-                != row["ID_Ocorrencia"]
-            ].reset_index(drop=True)
-            salvar_ocorrencias(st.session_state.df_ocorrencias)
+            excluir_ocorrencia(row["ID_Ocorrencia"])
             st.warning("Registro excluído!")
             st.rerun()
   else:
