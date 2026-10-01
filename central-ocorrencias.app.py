@@ -7,7 +7,7 @@ import streamlit as st
 # Configuração da Página
 st.set_page_config(
     page_title="Central de Ocorrências | Grupo RMC Mariano",
-    page_icon="🛡️️",
+    page_icon="🛡️",
     layout="centered",
 )
 
@@ -140,7 +140,7 @@ def carregar_ocorrencias():
   return df
 
 
-# Função para salvar uma nova ocorrência ou atualizar no banco
+# Função para salvar uma nova ocorrência no banco
 def salvar_nova_ocorrencia(dados):
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
@@ -185,11 +185,20 @@ def excluir_ocorrencia(id_ocorrencia):
   conn.close()
 
 
+# Barra Lateral com o Botão de Atualização Rápida para o seu App no PC
+with st.sidebar:
+  st.markdown("### ⚙️ Painel de Controlo")
+  st.markdown("Clique abaixo para atualizar os dados em tempo real.")
+  if st.button("🔄 Atualizar Página / Dados", use_container_width=True):
+    st.rerun()
+  st.markdown("---")
+  st.info("Sistema sincronizado e seguro.")
+
 # Inicializa o estado da sessão
 if "df_ocorrencias" not in st.session_state:
   st.session_state.df_ocorrencias = carregar_ocorrencias()
 
-# Abas principais (mantidas exatamente as suas)
+# Abas principais
 aba_supervisor, aba_consulta, aba_gestor = st.tabs([
     "📝 Registrar Ocorrência",
     "🔍 Consultar Meu Pedido",
@@ -279,10 +288,8 @@ with aba_supervisor:
             "Status": "🟡 Pendente de Análise",
         }
 
-        # Salva diretamente no banco de dados SQLite persistente
         salvar_nova_ocorrencia(nova_linha)
         st.session_state.df_ocorrencias = carregar_ocorrencias()
-
         st.success(
             "✅ Ocorrência enviada com sucesso! A gestão foi notificada em"
             " tempo real."
@@ -303,7 +310,6 @@ with aba_consulta:
       placeholder="Ex: 123456 ou Carlos...",
   )
 
-  # Atualiza os dados do banco para garantir consulta em tempo real
   st.session_state.df_ocorrencias = carregar_ocorrencias()
   df_oc = st.session_state.df_ocorrencias
 
